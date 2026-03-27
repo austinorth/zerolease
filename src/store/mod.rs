@@ -172,6 +172,82 @@ pub struct SecretMetadata {
     pub version: u32,
 }
 
+/// Configuration for selecting a secret store backend at runtime.
+///
+/// Mirrors the pattern used by [`KeySourceConfig`](crate::keysource::KeySourceConfig).
+/// Deserializable from a config file so operators can switch backends
+/// without recompiling (assuming the relevant feature flag is enabled).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type")]
+pub enum SecretStoreConfig {
+    /// SQLite single-file store (default for development).
+    #[serde(rename = "sqlite")]
+    Sqlite {
+        /// Path to the SQLite database file.
+        path: String,
+    },
+
+    /// PostgreSQL store (shared infrastructure).
+    #[serde(rename = "postgres")]
+    Postgres {
+        /// PostgreSQL connection URL.
+        url: String,
+    },
+
+    /// AWS Secrets Manager (cloud-native).
+    #[serde(rename = "aws_secretsmanager")]
+    AwsSecretsManager {
+        /// Prefix for secret names in Secrets Manager (e.g., "zerolease").
+        prefix: String,
+    },
+}
+
+impl SecretStoreConfig {
+    /// Create a concrete `SecretStore` from this configuration.
+    ///
+    /// Returns a boxed trait object suitable for passing to `Vault::new`.
+    /// Some variants require specific feature flags:
+    /// - `Sqlite` requires the `sqlite` feature
+    /// - `Postgres` requires the `postgres` feature
+    /// - `AwsSecretsManager` requires the `aws-secretsmanager` feature
+    pub async fn build(self) -> Result<Box<dyn SecretStore>> {
+        match self {
+            #[cfg(feature = "sqlite")]
+            SecretStoreConfig::Sqlite { path } => {
+                let store = sqlite::SqliteStore::new(&path).await?;
+                Ok(Box::new(store))
+            }
+
+            #[cfg(not(feature = "sqlite"))]
+            SecretStoreConfig::Sqlite { .. } => Err(crate::error::Error::InvalidConfig(
+                "SQLite store requires the 'sqlite' feature to be enabled".into(),
+            )),
+
+            #[cfg(feature = "postgres")]
+            SecretStoreConfig::Postgres { url } => {
+                let store = postgres::PostgresStore::new(&url).await?;
+                Ok(Box::new(store))
+            }
+
+            #[cfg(not(feature = "postgres"))]
+            SecretStoreConfig::Postgres { .. } => Err(crate::error::Error::InvalidConfig(
+                "PostgreSQL store requires the 'postgres' feature to be enabled".into(),
+            )),
+
+            #[cfg(feature = "aws-secretsmanager")]
+            SecretStoreConfig::AwsSecretsManager { prefix } => {
+                let store = aws_secretsmanager::AwsSecretsManagerStore::from_env(prefix).await?;
+                Ok(Box::new(store))
+            }
+
+            #[cfg(not(feature = "aws-secretsmanager"))]
+            SecretStoreConfig::AwsSecretsManager { .. } => Err(crate::error::Error::InvalidConfig(
+                "AWS Secrets Manager store requires the 'aws-secretsmanager' feature to be enabled".into(),
+            )),
+        }
+    }
+}
+
 impl From<&StoredSecret> for SecretMetadata {
     fn from(s: &StoredSecret) -> Self {
         Self {

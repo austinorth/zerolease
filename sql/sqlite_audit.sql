@@ -1,0 +1,22 @@
+-- zerolease audit log schema (SQLite)
+-- Schema version: 1
+--
+-- This file documents the complete schema. The table DDL is loaded
+-- from sqlite_audit_table.sql; indexes are created separately in code
+-- because sqlx cannot execute multiple statements in one query.
+
+CREATE TABLE IF NOT EXISTS audit_events (
+    event_id      TEXT PRIMARY KEY,
+    timestamp     TEXT NOT NULL,
+    event         TEXT NOT NULL,
+    agent         TEXT NOT NULL,
+    peer_identity TEXT NOT NULL,
+    outcome       TEXT NOT NULL,
+    secret_name   TEXT,
+    lease_id      TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_agent ON audit_events(agent);
+CREATE INDEX IF NOT EXISTS idx_audit_secret ON audit_events(secret_name);
+CREATE INDEX IF NOT EXISTS idx_audit_lease ON audit_events(lease_id);
+CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_events(timestamp);

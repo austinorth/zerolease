@@ -1,0 +1,37 @@
+[package]
+name = "zerolease-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "macros"] }
+
+[dependencies.zerolease]
+path = ".."
+
+[[bin]]
+name = "fuzz_read_frame"
+path = "fuzz_targets/fuzz_read_frame.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_protocol_deser"
+path = "fuzz_targets/fuzz_protocol_deser.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_domain_scope"
+path = "fuzz_targets/fuzz_domain_scope.rs"
+test = false
+doc = false
+bench = false

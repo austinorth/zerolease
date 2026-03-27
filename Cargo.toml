@@ -1,0 +1,52 @@
+[package]
+name = "zerolease"
+authors = ["C J Silverio <ceejceej@gmail.com>"]
+version = "0.1.0"
+edition = "2024"
+description = "A lightweight, agent-aware credential vault with lease-based access control"
+license = "Apache-2.0"
+repository = "https://github.com/ceejbot/zerolease"
+keywords = ["credentials", "vault", "security", "agents", "secrets"]
+readme = "README.md"
+categories = ["authentication", "cryptography"]
+
+[dependencies]
+aes-gcm = "0.10"
+async-trait = "0.1"
+aws-config = { version = "1", optional = true }
+aws-sdk-kms = { version = "1", optional = true }
+base64 = "0.22"
+chacha20poly1305 = "0.10"
+chrono = { version = "0.4", features = ["serde"] }
+secrecy = { version = "0.10", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+uuid = { version = "1", features = ["v7", "serde"] }
+zeroize = { version = "1.8", features = ["derive"] }
+
+[dependencies.sqlx]
+version = "0.8"
+features = ["runtime-tokio", "sqlite", "postgres", "chrono", "uuid"]
+optional = true
+
+[features]
+default = ["sqlite"]
+sqlite = ["sqlx"]
+postgres = ["sqlx"]
+vsock = ["tokio-vsock"]
+kms = ["aws-sdk-kms", "aws-config"]
+
+[target.'cfg(unix)'.dependencies]
+# OS keychain (Linux secret-service, macOS Keychain)
+keyring = "3.6"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# vsock for QEMU and Firecracker host-guest communication
+tokio-vsock = { version = "0.7", optional = true }
+
+[dev-dependencies]
+tempfile = "3"

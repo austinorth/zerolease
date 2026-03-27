@@ -1,0 +1,6 @@
+[advisories]
+# This crate does not use mysql. This report is a false positive triggered by a bug
+# in cargo lockfiles: Disabled optional weak dependencies end up in Cargo.lock.
+# See: https://github.com/launchbadge/sqlx/issues/2911
+# and https://github.com/rust-lang/cargo/issues/10801
+ignore = ["RUSTSEC-2023-0071"]

@@ -1,0 +1,27 @@
+# yamllint disable rule:line-length
+---
+name: audit-dependencies
+on:
+  push:
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+  workflow_dispatch:
+
+jobs:
+  security_audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install `cargo-audit`
+        shell: bash
+        run: |
+          curl -L --proto '=https' --tlsv1.2 -sSf \
+            https://raw.githubusercontent.com/cargo-bins/cargo-binstall/492941711f3351597237bd85cd7320bb2a03040d/install-from-binstall-release.sh | bash
+          cargo binstall --no-confirm cargo-audit
+
+      - uses: actions/checkout@v5
+
+      - name: Run `cargo audit`
+        shell: bash
+        run: |
+          cargo audit

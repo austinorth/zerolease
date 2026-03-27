@@ -78,10 +78,7 @@ where
     /// ```ignore
     /// server.serve_with_shutdown(tokio::signal::ctrl_c().map(|_| ())).await?;
     /// ```
-    pub async fn serve_with_shutdown(
-        &self,
-        shutdown: impl std::future::Future<Output = ()>,
-    ) -> crate::error::Result<()> {
+    pub async fn serve_with_shutdown(&self, shutdown: impl Future<Output = ()>) -> crate::error::Result<()> {
         tokio::pin!(shutdown);
 
         loop {

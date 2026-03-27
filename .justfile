@@ -1,40 +1,50 @@
 _help:
-	just -l
+    just -l
 
-# Run all tests using nextest.
+# Run all unit tests using nextest.
 test:
-	cargo nextest run
+    cargo nextest run --future-incompat-report
 
+# Run the fuzz tests against the wireline protocol.
+fuzz:
+    cargo +nightly fuzz run fuzz_read_frame -- -max_total_time=60
+    cargo +nightly fuzz run fuzz_protocol_deser -- -max_total_time=60
+    cargo +nightly fuzz run fuzz_domain_scope -- -max_total_time=60
+
+# Run all the tests.
+all-tests: test fuzz
+
+# Get a code coverage report using llvm-cov.
 coverage:
-	cargo llvm-cov --all-targets --workspace --summary-only
+    cargo llvm-cov --all-targets --workspace --summary-only
 
-# Run the nightly formatter
+# Run the nightly formatter.
 fmt:
-	cargo +nightly fmt
+    cargo +nightly fmt
 
 # Run the same checks we run in CI. Requires nightly.
 ci: test fmt
-	cargo clippy --all-targets
-	cargo test --doc
+    cargo clippy --all-targets
+    cargo test --doc
 
 # Install required tools
 setup:
-	brew tap ceejbot/tap
-	brew install cargo-nextest tomato semver-bump
-	rustup install nightly
+    brew tap ceejbot/tap
+    brew install cargo-nextest tomato semver-bump
+    rustup install nightly
 
 # Tag a new version for release.
 version BUMP:
-	#!/usr/bin/env bash
-	set -e
-	current=$(tomato get package.version Cargo.toml)
-	version=$(semver-bump {{BUMP}} "$current")
-	tomato set package.version "$version" Cargo.toml &> /dev/null
-	cargo generate-lockfile
-	git commit Cargo.toml -m "v${version}"
-	git tag "v${version}"
-	echo "Release tagged for version v${version}"
+    #!/usr/bin/env bash
+    set -e
+    current=$(tomato get package.version Cargo.toml)
+    version=$(semver-bump {{ BUMP }} "$current")
+    tomato set package.version "$version" Cargo.toml &> /dev/null
+    cargo generate-lockfile
+    git commit Cargo.toml -m "v${version}"
+    git tag "v${version}"
+    echo "Release tagged for version v${version}"
 
 # publish to crates.io
 release:
-	cargo publish
+    cargo publish

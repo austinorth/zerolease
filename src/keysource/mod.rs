@@ -145,13 +145,11 @@ impl KeySourceConfig {
     /// - `AwsKms` requires the `kms` feature
     pub async fn build(self) -> Result<Box<dyn KeySource>> {
         match self {
-            KeySourceConfig::EnvVar { var_name } => {
-                Ok(Box::new(env::EnvVarSource::new(var_name)) as Box<dyn KeySource>)
-            }
+            KeySourceConfig::EnvVar { var_name } => Ok(Box::new(env::EnvVarSource::new(var_name))),
 
             #[cfg(unix)]
             KeySourceConfig::Keychain { service, account } => {
-                Ok(Box::new(keychain::KeychainSource::new(service, account)) as Box<dyn KeySource>)
+                Ok(Box::new(keychain::KeychainSource::new(service, account)))
             }
 
             #[cfg(not(unix))]

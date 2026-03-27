@@ -456,7 +456,7 @@ where
             let stored = self.store.get(&meta.name).await?;
 
             // Decrypt with old DEK
-            let sealed = crate::crypto::Sealed {
+            let sealed = Sealed {
                 ciphertext: stored.ciphertext,
                 nonce: stored.nonce,
                 algorithm: stored.algorithm,

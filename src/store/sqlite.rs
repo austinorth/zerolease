@@ -213,10 +213,10 @@ impl SecretStore for SqliteStore {
                 description,
                 created_at: chrono::DateTime::parse_from_rfc3339(&created_at_str)
                     .map_err(|e| Error::Storage(format!("invalid created_at: {e}")))?
-                    .with_timezone(&chrono::Utc),
+                    .with_timezone(&Utc),
                 updated_at: chrono::DateTime::parse_from_rfc3339(&updated_at_str)
                     .map_err(|e| Error::Storage(format!("invalid updated_at: {e}")))?
-                    .with_timezone(&chrono::Utc),
+                    .with_timezone(&Utc),
                 version: version as u32,
             });
         }
@@ -265,10 +265,10 @@ fn row_to_stored_secret(row: &sqlx::sqlite::SqliteRow) -> Result<StoredSecret> {
         description,
         created_at: chrono::DateTime::parse_from_rfc3339(&created_at_str)
             .map_err(|e| Error::Storage(format!("invalid created_at: {e}")))?
-            .with_timezone(&chrono::Utc),
+            .with_timezone(&Utc),
         updated_at: chrono::DateTime::parse_from_rfc3339(&updated_at_str)
             .map_err(|e| Error::Storage(format!("invalid updated_at: {e}")))?
-            .with_timezone(&chrono::Utc),
+            .with_timezone(&Utc),
         version: version as u32,
     })
 }

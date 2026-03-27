@@ -77,12 +77,18 @@ mod tests {
 
     fn set_env(name: &str, value: &str) {
         // SAFETY: tests run single-threaded via --test-threads=1
-        unsafe { std::env::set_var(name, value) };
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::set_var(name, value)
+        };
     }
 
     fn remove_env(name: &str) {
         // SAFETY: tests run single-threaded via --test-threads=1
-        unsafe { std::env::remove_var(name) };
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::remove_var(name)
+        };
     }
 
     #[tokio::test]
@@ -92,7 +98,10 @@ mod tests {
         set_env(var, &"aa".repeat(32));
 
         let source = EnvVarSource::new(var);
-        let dek = source.load_or_create_dek().await.unwrap();
+        let dek = source
+            .load_or_create_dek()
+            .await
+            .expect("valid hex key should load successfully");
         assert_eq!(dek.as_bytes(), &[0xAA; 32]);
 
         remove_env(var);
@@ -103,7 +112,7 @@ mod tests {
         let source = EnvVarSource::new("ZEROLEASE_TEST_ENV_MISSING");
         let result = source.load_or_create_dek().await;
         assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
+        let err = result.expect_err("missing env var should produce an error").to_string();
         assert!(err.contains("not set"), "error was: {err}");
     }
 
@@ -115,7 +124,7 @@ mod tests {
         let source = EnvVarSource::new(var);
         let result = source.load_or_create_dek().await;
         assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
+        let err = result.expect_err("invalid hex should produce an error").to_string();
         assert!(err.contains("not valid hex"), "error was: {err}");
 
         remove_env(var);
@@ -129,7 +138,9 @@ mod tests {
         let source = EnvVarSource::new(var);
         let result = source.load_or_create_dek().await;
         assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
+        let err = result
+            .expect_err("wrong-length hex should produce an error")
+            .to_string();
         assert!(err.contains("64 hex characters"), "error was: {err}");
 
         remove_env(var);

@@ -286,8 +286,8 @@ mod tests {
     #[test]
     fn client_hello_serde_round_trip() {
         let hello = ClientHello::new();
-        let json = serde_json::to_string(&hello).unwrap();
-        let parsed: ClientHello = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&hello).expect("should serialize ClientHello to json");
+        let parsed: ClientHello = serde_json::from_str(&json).expect("should deserialize ClientHello from json");
         assert_eq!(parsed.protocol, PROTOCOL_NAME);
         assert_eq!(parsed.version, CURRENT_VERSION);
     }
@@ -295,8 +295,8 @@ mod tests {
     #[test]
     fn server_hello_accept_round_trip() {
         let hello = ServerHello::accept(1);
-        let json = serde_json::to_string(&hello).unwrap();
-        let parsed: ServerHello = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&hello).expect("should serialize ServerHello accept to json");
+        let parsed: ServerHello = serde_json::from_str(&json).expect("should deserialize ServerHello accept from json");
         assert!(parsed.ok);
         assert_eq!(parsed.version, 1);
         assert!(parsed.error.is_none());
@@ -305,17 +305,23 @@ mod tests {
     #[test]
     fn server_hello_reject_round_trip() {
         let hello = ServerHello::reject("unsupported version 99");
-        let json = serde_json::to_string(&hello).unwrap();
-        let parsed: ServerHello = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&hello).expect("should serialize ServerHello reject to json");
+        let parsed: ServerHello = serde_json::from_str(&json).expect("should deserialize ServerHello reject from json");
         assert!(!parsed.ok);
         assert_eq!(parsed.version, CURRENT_VERSION);
-        assert!(parsed.error.unwrap().contains("unsupported"));
+        assert!(
+            parsed
+                .error
+                .expect("should have error message in rejected hello")
+                .contains("unsupported")
+        );
     }
 
     #[test]
     fn wrong_protocol_name_detectable() {
         let json = r#"{"protocol": "not-zerolease", "version": 1}"#;
-        let hello: ClientHello = serde_json::from_str(json).unwrap();
+        let hello: ClientHello =
+            serde_json::from_str(json).expect("should parse client hello with wrong protocol name");
         assert_ne!(hello.protocol, PROTOCOL_NAME);
     }
 
@@ -330,7 +336,13 @@ mod tests {
             ServerHello::accept(client_version)
         };
         assert!(!response.ok);
-        assert!(response.error.as_ref().unwrap().contains("99"));
+        assert!(
+            response
+                .error
+                .as_ref()
+                .expect("should have rejection error message")
+                .contains("99")
+        );
         assert_eq!(response.version, CURRENT_VERSION);
     }
 
@@ -345,8 +357,8 @@ mod tests {
                 "domain": "api.github.com"
             }),
         };
-        let json = serde_json::to_string(&req).unwrap();
-        let parsed: Request = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&req).expect("should serialize Request to json");
+        let parsed: Request = serde_json::from_str(&json).expect("should deserialize Request from json");
         assert_eq!(parsed.id, req.id);
         assert_eq!(parsed.method, methods::REQUEST_LEASE);
     }
@@ -355,8 +367,8 @@ mod tests {
     fn success_response_round_trip() {
         let id = Uuid::now_v7();
         let resp = Response::success(id, serde_json::json!({"lease_id": "abc"}));
-        let json = serde_json::to_string(&resp).unwrap();
-        let parsed: Response = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&resp).expect("should serialize success Response to json");
+        let parsed: Response = serde_json::from_str(&json).expect("should deserialize success Response from json");
         assert!(parsed.ok);
         assert_eq!(parsed.id, id);
         assert!(parsed.result.is_some());
@@ -368,11 +380,11 @@ mod tests {
         let id = Uuid::now_v7();
         let err = Error::SecretNotFound(SecretName::new("missing"));
         let resp = Response::from_error(id, &err);
-        let json = serde_json::to_string(&resp).unwrap();
-        let parsed: Response = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&resp).expect("should serialize error Response to json");
+        let parsed: Response = serde_json::from_str(&json).expect("should deserialize error Response from json");
         assert!(!parsed.ok);
         assert!(parsed.result.is_none());
-        let payload = parsed.error.unwrap();
+        let payload = parsed.error.expect("should have error payload in error response");
         assert_eq!(payload.code, "secret_not_found");
         assert!(payload.message.contains("missing"));
     }
@@ -381,10 +393,13 @@ mod tests {
     fn protocol_error_response() {
         let id = Uuid::nil();
         let resp = Response::protocol_error(id, CODE_INVALID_REQUEST, "unknown method: foo");
-        let json = serde_json::to_string(&resp).unwrap();
-        let parsed: Response = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&resp).expect("should serialize protocol error Response to json");
+        let parsed: Response =
+            serde_json::from_str(&json).expect("should deserialize protocol error Response from json");
         assert!(!parsed.ok);
-        let payload = parsed.error.unwrap();
+        let payload = parsed
+            .error
+            .expect("should have error payload in protocol error response");
         assert_eq!(payload.code, "invalid_request");
         assert!(payload.message.contains("foo"));
     }
@@ -433,8 +448,9 @@ mod tests {
             secret_name: "my-token".into(),
             domain: "api.example.com".into(),
         };
-        let json = serde_json::to_string(&params).unwrap();
-        let parsed: RequestLeaseRequest = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&params).expect("should serialize RequestLeaseRequest to json");
+        let parsed: RequestLeaseRequest =
+            serde_json::from_str(&json).expect("should deserialize RequestLeaseRequest from json");
         assert_eq!(parsed.agent, "test-agent");
         assert_eq!(parsed.secret_name, "my-token");
         assert_eq!(parsed.domain, "api.example.com");
@@ -448,19 +464,20 @@ mod tests {
             kind: serde_json::json!("ApiKey"),
             description: Some("test".into()),
         };
-        let json = serde_json::to_string(&params).unwrap();
-        let parsed: StoreSecretRequest = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&params).expect("should serialize StoreSecretRequest to json");
+        let parsed: StoreSecretRequest =
+            serde_json::from_str(&json).expect("should deserialize StoreSecretRequest from json");
 
         let decoded = base64::engine::general_purpose::STANDARD
             .decode(&parsed.plaintext)
-            .unwrap();
+            .expect("should decode base64 plaintext");
         assert_eq!(decoded, b"super-secret");
     }
 
     #[test]
     fn unknown_method_detectable() {
         let req_json = r#"{"id": "00000000-0000-0000-0000-000000000000", "method": "nonexistent", "params": {}}"#;
-        let req: Request = serde_json::from_str(req_json).unwrap();
+        let req: Request = serde_json::from_str(req_json).expect("should deserialize request with unknown method");
         let known = [
             methods::STORE_SECRET,
             methods::REQUEST_LEASE,
@@ -473,7 +490,9 @@ mod tests {
         ];
         assert!(!known.contains(&req.method.as_str()));
         let resp = Response::protocol_error(req.id, CODE_INVALID_REQUEST, format!("unknown method: {}", req.method));
-        let payload = resp.error.unwrap();
+        let payload = resp
+            .error
+            .expect("should have error payload for unknown method response");
         assert_eq!(payload.code, "invalid_request");
     }
 
@@ -481,8 +500,8 @@ mod tests {
     fn malformed_params_detectable() {
         let req_json =
             r#"{"id": "00000000-0000-0000-0000-000000000000", "method": "request_lease", "params": {"agent": 123}}"#;
-        let req: Request = serde_json::from_str(req_json).unwrap();
-        let result: std::result::Result<RequestLeaseRequest, _> = serde_json::from_value(req.params);
+        let req: Request = serde_json::from_str(req_json).expect("should deserialize request with malformed params");
+        let result: Result<RequestLeaseRequest, _> = serde_json::from_value(req.params);
         assert!(result.is_err());
     }
 }

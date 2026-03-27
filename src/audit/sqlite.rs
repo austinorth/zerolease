@@ -197,8 +197,8 @@ mod tests {
     use crate::types::DomainScope;
 
     async fn test_audit_log() -> (SqliteAuditLog, NamedTempFile) {
-        let tmp = NamedTempFile::new().unwrap();
-        let log = SqliteAuditLog::new(tmp.path()).await.unwrap();
+        let tmp = NamedTempFile::new().expect("should create temp file");
+        let log = SqliteAuditLog::new(tmp.path()).await.expect("should create audit log");
         (log, tmp)
     }
 
@@ -227,11 +227,16 @@ mod tests {
         // Record 3 events for alice, 1 for bob
         for _ in 0..3 {
             let entry = make_entry("alice", AuditEvent::DekRotated);
-            log.record(entry).await.unwrap();
+            log.record(entry).await.expect("should record alice entry");
         }
-        log.record(make_entry("bob", AuditEvent::DekRotated)).await.unwrap();
+        log.record(make_entry("bob", AuditEvent::DekRotated))
+            .await
+            .expect("should record bob entry");
 
-        let results = log.query_by_agent(&AgentId::new("alice"), 10).await.unwrap();
+        let results = log
+            .query_by_agent(&AgentId::new("alice"), 10)
+            .await
+            .expect("should query by agent alice");
         assert_eq!(results.len(), 3);
 
         // Most recent first
@@ -239,7 +244,10 @@ mod tests {
         assert!(results[1].timestamp >= results[2].timestamp);
 
         // Bob has 1
-        let bob_results = log.query_by_agent(&AgentId::new("bob"), 10).await.unwrap();
+        let bob_results = log
+            .query_by_agent(&AgentId::new("bob"), 10)
+            .await
+            .expect("should query by agent bob");
         assert_eq!(bob_results.len(), 1);
     }
 
@@ -251,12 +259,15 @@ mod tests {
         let lease2 = LeaseId::new();
         log.record(make_entry("agent", lease_granted_event("secret-a", lease1)))
             .await
-            .unwrap();
+            .expect("should record secret-a entry");
         log.record(make_entry("agent", lease_granted_event("secret-b", lease2)))
             .await
-            .unwrap();
+            .expect("should record secret-b entry");
 
-        let results = log.query_by_secret(&SecretName::new("secret-a"), 10).await.unwrap();
+        let results = log
+            .query_by_secret(&SecretName::new("secret-a"), 10)
+            .await
+            .expect("should query by secret");
         assert_eq!(results.len(), 1);
     }
 
@@ -268,12 +279,12 @@ mod tests {
         let lease2 = LeaseId::new();
         log.record(make_entry("agent", lease_granted_event("secret", lease1)))
             .await
-            .unwrap();
+            .expect("should record entry for lease1");
         log.record(make_entry("agent", lease_granted_event("secret", lease2)))
             .await
-            .unwrap();
+            .expect("should record entry for lease2");
 
-        let results = log.query_by_lease(&lease1).await.unwrap();
+        let results = log.query_by_lease(&lease1).await.expect("should query by lease");
         assert_eq!(results.len(), 1);
     }
 
@@ -282,10 +293,15 @@ mod tests {
         let (log, _tmp) = test_audit_log().await;
 
         for _ in 0..5 {
-            log.record(make_entry("agent", AuditEvent::DekRotated)).await.unwrap();
+            log.record(make_entry("agent", AuditEvent::DekRotated))
+                .await
+                .expect("should record entry for limit test");
         }
 
-        let results = log.query_by_agent(&AgentId::new("agent"), 2).await.unwrap();
+        let results = log
+            .query_by_agent(&AgentId::new("agent"), 2)
+            .await
+            .expect("should query by agent with limit");
         assert_eq!(results.len(), 2);
     }
 
@@ -293,14 +309,22 @@ mod tests {
     async fn events_without_secret_or_lease() {
         let (log, _tmp) = test_audit_log().await;
 
-        log.record(make_entry("agent", AuditEvent::DekRotated)).await.unwrap();
+        log.record(make_entry("agent", AuditEvent::DekRotated))
+            .await
+            .expect("should record DekRotated entry");
 
         // Should appear in query_by_agent
-        let by_agent = log.query_by_agent(&AgentId::new("agent"), 10).await.unwrap();
+        let by_agent = log
+            .query_by_agent(&AgentId::new("agent"), 10)
+            .await
+            .expect("should query by agent for event without secret");
         assert_eq!(by_agent.len(), 1);
 
         // Should NOT appear in query_by_secret (no secret_name)
-        let by_secret = log.query_by_secret(&SecretName::new("anything"), 10).await.unwrap();
+        let by_secret = log
+            .query_by_secret(&SecretName::new("anything"), 10)
+            .await
+            .expect("should query by secret for non-matching name");
         assert!(by_secret.is_empty());
     }
 
@@ -323,9 +347,12 @@ mod tests {
         let original_agent = original.agent.as_str().to_string();
         let original_peer = original.peer_identity.clone();
 
-        log.record(original).await.unwrap();
+        log.record(original).await.expect("should record round-trip entry");
 
-        let results = log.query_by_agent(&AgentId::new("test-agent"), 1).await.unwrap();
+        let results = log
+            .query_by_agent(&AgentId::new("test-agent"), 1)
+            .await
+            .expect("should query round-trip entry by agent");
         assert_eq!(results.len(), 1);
 
         let entry = &results[0];
@@ -342,13 +369,22 @@ mod tests {
     async fn empty_result() {
         let (log, _tmp) = test_audit_log().await;
 
-        let by_agent = log.query_by_agent(&AgentId::new("nobody"), 10).await.unwrap();
+        let by_agent = log
+            .query_by_agent(&AgentId::new("nobody"), 10)
+            .await
+            .expect("should query by agent on empty log");
         assert!(by_agent.is_empty());
 
-        let by_secret = log.query_by_secret(&SecretName::new("nothing"), 10).await.unwrap();
+        let by_secret = log
+            .query_by_secret(&SecretName::new("nothing"), 10)
+            .await
+            .expect("should query by secret on empty log");
         assert!(by_secret.is_empty());
 
-        let by_lease = log.query_by_lease(&LeaseId::new()).await.unwrap();
+        let by_lease = log
+            .query_by_lease(&LeaseId::new())
+            .await
+            .expect("should query by lease on empty log");
         assert!(by_lease.is_empty());
     }
 }

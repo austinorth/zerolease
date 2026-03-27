@@ -90,8 +90,8 @@ mod tests {
         let (mut client, mut server) = duplex(1024);
         let payload = b"hello, zerolease";
 
-        write_frame(&mut client, payload).await.unwrap();
-        let received = read_frame(&mut server).await.unwrap();
+        write_frame(&mut client, payload).await.expect("should write frame");
+        let received = read_frame(&mut server).await.expect("should read frame");
         assert_eq!(received, payload);
     }
 
@@ -99,13 +99,22 @@ mod tests {
     async fn multiple_frames() {
         let (mut client, mut server) = duplex(4096);
 
-        write_frame(&mut client, b"one").await.unwrap();
-        write_frame(&mut client, b"two").await.unwrap();
-        write_frame(&mut client, b"three").await.unwrap();
+        write_frame(&mut client, b"one")
+            .await
+            .expect("should write first frame");
+        write_frame(&mut client, b"two")
+            .await
+            .expect("should write second frame");
+        write_frame(&mut client, b"three")
+            .await
+            .expect("should write third frame");
 
-        assert_eq!(read_frame(&mut server).await.unwrap(), b"one");
-        assert_eq!(read_frame(&mut server).await.unwrap(), b"two");
-        assert_eq!(read_frame(&mut server).await.unwrap(), b"three");
+        assert_eq!(read_frame(&mut server).await.expect("should read first frame"), b"one");
+        assert_eq!(read_frame(&mut server).await.expect("should read second frame"), b"two");
+        assert_eq!(
+            read_frame(&mut server).await.expect("should read third frame"),
+            b"three"
+        );
     }
 
     #[tokio::test]
@@ -115,7 +124,7 @@ mod tests {
 
         let result = write_frame(&mut client, &huge).await;
         assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
+        let err = result.expect_err("should reject oversized write").to_string();
         assert!(err.contains("frame too large"), "error was: {err}");
     }
 
@@ -126,11 +135,14 @@ mod tests {
         // Manually write a length header claiming a huge payload
         let fake_len = (MAX_FRAME_SIZE + 1).to_be_bytes();
         use tokio::io::AsyncWriteExt;
-        client.write_all(&fake_len).await.unwrap();
+        client
+            .write_all(&fake_len)
+            .await
+            .expect("should write fake length header");
 
         let result = read_frame(&mut server).await;
         assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
+        let err = result.expect_err("should reject oversized read").to_string();
         assert!(err.contains("frame too large"), "error was: {err}");
     }
 
@@ -138,8 +150,8 @@ mod tests {
     async fn empty_frame_round_trip() {
         let (mut client, mut server) = duplex(1024);
 
-        write_frame(&mut client, b"").await.unwrap();
-        let received = read_frame(&mut server).await.unwrap();
+        write_frame(&mut client, b"").await.expect("should write empty frame");
+        let received = read_frame(&mut server).await.expect("should read empty frame");
         assert!(received.is_empty());
     }
 }

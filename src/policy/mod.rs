@@ -237,7 +237,7 @@ mod tests {
         );
         assert!(result.is_ok());
         // Should get single-use terms from the grant
-        let terms = result.unwrap();
+        let terms = result.expect("exact match should grant access");
         assert_eq!(terms.max_uses, Some(1));
     }
 

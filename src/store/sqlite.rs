@@ -281,8 +281,8 @@ mod tests {
     use crate::store::CipherAlgorithm;
 
     async fn test_store() -> (SqliteStore, NamedTempFile) {
-        let tmp = NamedTempFile::new().unwrap();
-        let store = SqliteStore::new(tmp.path()).await.unwrap();
+        let tmp = NamedTempFile::new().expect("should create temp file");
+        let store = SqliteStore::new(tmp.path()).await.expect("should create store");
         (store, tmp)
     }
 
@@ -301,13 +301,16 @@ mod tests {
     async fn put_and_get_round_trip() {
         let (store, _tmp) = test_store().await;
         let params = test_params("my-secret");
-        let stored = store.put(params).await.unwrap();
+        let stored = store.put(params).await.expect("should put secret");
         assert_eq!(stored.name, SecretName::new("my-secret"));
         assert_eq!(stored.ciphertext, vec![1, 2, 3, 4]);
         assert_eq!(stored.algorithm, CipherAlgorithm::Aes256Gcm);
         assert_eq!(stored.kind, SecretKind::Pat);
         assert_eq!(stored.version, 1);
-        let fetched = store.get(&SecretName::new("my-secret")).await.unwrap();
+        let fetched = store
+            .get(&SecretName::new("my-secret"))
+            .await
+            .expect("should get secret");
         assert_eq!(fetched.name, stored.name);
         assert_eq!(fetched.ciphertext, stored.ciphertext);
         assert_eq!(fetched.nonce, stored.nonce);
@@ -316,10 +319,10 @@ mod tests {
     #[tokio::test]
     async fn put_duplicate_name_errors() {
         let (store, _tmp) = test_store().await;
-        store.put(test_params("dup")).await.unwrap();
+        store.put(test_params("dup")).await.expect("should put first secret");
         let result = store.put(test_params("dup")).await;
         assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
+        let err = result.expect_err("duplicate put should fail").to_string();
         assert!(err.contains("already exists"), "error was: {err}");
     }
 
@@ -328,14 +331,14 @@ mod tests {
         let (store, _tmp) = test_store().await;
         let result = store.get(&SecretName::new("nonexistent")).await;
         assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
+        let err = result.expect_err("get nonexistent should fail").to_string();
         assert!(err.contains("not found"), "error was: {err}");
     }
 
     #[tokio::test]
     async fn update_increments_version() {
         let (store, _tmp) = test_store().await;
-        store.put(test_params("versioned")).await.unwrap();
+        store.put(test_params("versioned")).await.expect("should put secret");
         let updated = store
             .update(
                 &SecretName::new("versioned"),
@@ -344,7 +347,7 @@ mod tests {
                 CipherAlgorithm::Aes256Gcm,
             )
             .await
-            .unwrap();
+            .expect("should update secret");
         assert_eq!(updated.version, 2);
         assert_eq!(updated.ciphertext, vec![10, 20, 30]);
     }
@@ -356,15 +359,18 @@ mod tests {
             .update(&SecretName::new("ghost"), vec![1], vec![2], CipherAlgorithm::Aes256Gcm)
             .await;
         assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
+        let err = result.expect_err("update nonexistent should fail").to_string();
         assert!(err.contains("not found"), "error was: {err}");
     }
 
     #[tokio::test]
     async fn delete_removes_secret() {
         let (store, _tmp) = test_store().await;
-        store.put(test_params("doomed")).await.unwrap();
-        store.delete(&SecretName::new("doomed")).await.unwrap();
+        store.put(test_params("doomed")).await.expect("should put secret");
+        store
+            .delete(&SecretName::new("doomed"))
+            .await
+            .expect("should delete secret");
         let result = store.get(&SecretName::new("doomed")).await;
         assert!(result.is_err());
     }
@@ -374,16 +380,19 @@ mod tests {
         let (store, _tmp) = test_store().await;
         let result = store.delete(&SecretName::new("nope")).await;
         assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
+        let err = result.expect_err("delete nonexistent should fail").to_string();
         assert!(err.contains("not found"), "error was: {err}");
     }
 
     #[tokio::test]
     async fn list_returns_metadata() {
         let (store, _tmp) = test_store().await;
-        store.put(test_params("first")).await.unwrap();
-        store.put(test_params("second")).await.unwrap();
-        let list = store.list().await.unwrap();
+        store.put(test_params("first")).await.expect("should put first secret");
+        store
+            .put(test_params("second"))
+            .await
+            .expect("should put second secret");
+        let list = store.list().await.expect("should list secrets");
         assert_eq!(list.len(), 2);
         let names: Vec<String> = list.iter().map(|m| m.name.as_str().to_string()).collect();
         assert!(names.contains(&"first".to_string()));

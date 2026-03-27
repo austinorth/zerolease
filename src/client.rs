@@ -255,22 +255,22 @@ mod tests {
     use crate::store::sqlite::SqliteStore;
     use crate::store::{CipherAlgorithm, SecretKind};
     use crate::transport::uds::{UdsConnector, UdsListener};
-    use crate::types::{AgentId, DomainScope, SecretName};
+    use crate::types::{AgentId, DomainScope, LeaseId, SecretName};
 
     struct NoopAuditLog;
 
     #[async_trait::async_trait]
     impl AuditLog for NoopAuditLog {
-        async fn record(&self, _: AuditEntry) -> crate::error::Result<()> {
+        async fn record(&self, _: AuditEntry) -> Result<()> {
             Ok(())
         }
-        async fn query_by_agent(&self, _: &AgentId, _: usize) -> crate::error::Result<Vec<AuditEntry>> {
+        async fn query_by_agent(&self, _: &AgentId, _: usize) -> Result<Vec<AuditEntry>> {
             Ok(vec![])
         }
-        async fn query_by_secret(&self, _: &SecretName, _: usize) -> crate::error::Result<Vec<AuditEntry>> {
+        async fn query_by_secret(&self, _: &SecretName, _: usize) -> Result<Vec<AuditEntry>> {
             Ok(vec![])
         }
-        async fn query_by_lease(&self, _: &crate::types::LeaseId) -> crate::error::Result<Vec<AuditEntry>> {
+        async fn query_by_lease(&self, _: &LeaseId) -> Result<Vec<AuditEntry>> {
             Ok(vec![])
         }
     }
@@ -280,15 +280,21 @@ mod tests {
     async fn setup(
         env_var: &str,
         grants: Vec<PolicyGrant>,
-    ) -> (VaultClient<UdsConnector>, JoinHandle<crate::error::Result<()>>, TempDir) {
-        unsafe { std::env::set_var(env_var, "aa".repeat(32)) };
+    ) -> (VaultClient<UdsConnector>, JoinHandle<Result<()>>, TempDir) {
+        // SAFETY: tests run single-threaded via --test-threads=1
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::set_var(env_var, "aa".repeat(32))
+        };
 
-        let dir = TempDir::new().unwrap();
+        let dir = TempDir::new().expect("failed to create temp directory for test");
         let sock_path = dir.path().join("vault.sock");
         let db_path = dir.path().join("secrets.db");
 
         let key_source = EnvVarSource::new(env_var);
-        let store = SqliteStore::new(&db_path).await.unwrap();
+        let store = SqliteStore::new(&db_path)
+            .await
+            .expect("failed to initialize SQLite store");
         let audit = NoopAuditLog;
         let policy = PolicyEngine::new(PolicyConfig {
             default_lease_terms: LeaseTerms::default_short(),
@@ -302,9 +308,9 @@ mod tests {
             policy,
             CipherAlgorithm::Aes256Gcm,
         ));
-        vault.initialize().await.unwrap();
+        vault.initialize().await.expect("vault initialization should succeed");
 
-        let listener = UdsListener::bind(&sock_path).unwrap();
+        let listener = UdsListener::bind(&sock_path).expect("failed to bind UDS listener");
         let server = VaultServer::new(Arc::clone(&vault), listener, Arc::new(AllowAllAdmin));
         let handle = tokio::spawn(async move { server.serve().await });
 
@@ -312,7 +318,9 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 
         let connector = UdsConnector::new(&sock_path);
-        let client = VaultClient::connect(&connector).await.unwrap();
+        let client = VaultClient::connect(&connector)
+            .await
+            .expect("client failed to connect to vault server");
 
         (client, handle, dir)
     }
@@ -349,10 +357,10 @@ mod tests {
         let meta = client
             .store_secret("test-token", b"secret-value", SecretKind::ApiKey, None)
             .await
-            .unwrap();
+            .expect("store_secret should succeed");
         assert_eq!(meta.name, SecretName::new("test-token"));
 
-        let list = client.list_secrets().await.unwrap();
+        let list = client.list_secrets().await.expect("list_secrets should succeed");
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].name, SecretName::new("test-token"));
 
@@ -366,17 +374,17 @@ mod tests {
         client
             .store_secret("test-token", b"my-api-key", SecretKind::ApiKey, None)
             .await
-            .unwrap();
+            .expect("store_secret should succeed");
 
         let grant = client
             .request_lease("test-agent", "test-token", "api.example.com")
             .await
-            .unwrap();
+            .expect("request_lease should succeed");
 
         let secret_bytes = client
             .access_secret(*grant.lease_id.as_uuid(), "api.example.com")
             .await
-            .unwrap();
+            .expect("access_secret should succeed");
 
         assert_eq!(secret_bytes, b"my-api-key");
 
@@ -390,16 +398,16 @@ mod tests {
         client
             .store_secret("test-token", b"value", SecretKind::ApiKey, None)
             .await
-            .unwrap();
+            .expect("store_secret should succeed");
         let grant = client
             .request_lease("test-agent", "test-token", "api.example.com")
             .await
-            .unwrap();
+            .expect("request_lease should succeed");
 
         client
             .revoke_lease(*grant.lease_id.as_uuid(), RevocationReason::AdminRevoked)
             .await
-            .unwrap();
+            .expect("revoke_lease should succeed");
 
         let result = client.access_secret(*grant.lease_id.as_uuid(), "api.example.com").await;
         assert!(result.is_err());
@@ -414,13 +422,16 @@ mod tests {
         client
             .store_secret("test-token", b"value", SecretKind::ApiKey, None)
             .await
-            .unwrap();
+            .expect("store_secret should succeed");
         client
             .request_lease("test-agent", "test-token", "api.example.com")
             .await
-            .unwrap();
+            .expect("request_lease should succeed");
 
-        let count = client.revoke_all_for_agent("test-agent").await.unwrap();
+        let count = client
+            .revoke_all_for_agent("test-agent")
+            .await
+            .expect("revoke_all_for_agent should succeed");
         assert!(count >= 1);
 
         handle.abort();
@@ -433,10 +444,13 @@ mod tests {
         client
             .store_secret("test-token", b"value", SecretKind::ApiKey, None)
             .await
-            .unwrap();
-        client.delete_secret("test-token").await.unwrap();
+            .expect("store_secret should succeed");
+        client
+            .delete_secret("test-token")
+            .await
+            .expect("delete_secret should succeed");
 
-        let list = client.list_secrets().await.unwrap();
+        let list = client.list_secrets().await.expect("list_secrets should succeed");
         assert!(list.is_empty());
 
         handle.abort();
@@ -449,13 +463,16 @@ mod tests {
         client
             .store_secret("test-token", b"value", SecretKind::ApiKey, None)
             .await
-            .unwrap();
+            .expect("store_secret should succeed");
         let grant = client
             .request_lease("test-agent", "test-token", "api.example.com")
             .await
-            .unwrap();
+            .expect("request_lease should succeed");
 
-        let renewed = client.renew_lease(*grant.lease_id.as_uuid(), 3600).await.unwrap();
+        let renewed = client
+            .renew_lease(*grant.lease_id.as_uuid(), 3600)
+            .await
+            .expect("renew_lease should succeed");
         assert_eq!(renewed.lease_id, grant.lease_id);
 
         handle.abort();

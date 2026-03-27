@@ -86,21 +86,25 @@ mod tests {
 
     #[tokio::test]
     async fn bind_and_accept() {
-        let dir = tempfile::TempDir::new().unwrap();
+        let dir = tempfile::TempDir::new().expect("failed to create temp directory");
         let sock_path = dir.path().join("test.sock");
 
-        let listener = UdsListener::bind(&sock_path).unwrap();
+        let listener = UdsListener::bind(&sock_path).expect("failed to bind UDS listener");
 
         let client = tokio::spawn({
             let path = sock_path.clone();
-            async move { UnixStream::connect(path).await.unwrap() }
+            async move {
+                UnixStream::connect(path)
+                    .await
+                    .expect("client failed to connect to UDS")
+            }
         });
 
-        let (stream, peer) = listener.accept().await.unwrap();
+        let (stream, peer) = listener.accept().await.expect("listener failed to accept connection");
         // Stream should be usable (not dropped).
         drop(stream);
         // Client connected successfully.
-        let _ = client.await.unwrap();
+        let _ = client.await.expect("client task should not panic");
 
         // Peer identity should be extracted.
         assert!(
@@ -111,16 +115,17 @@ mod tests {
 
     #[tokio::test]
     async fn connector_connects_to_listener() {
-        let dir = tempfile::TempDir::new().unwrap();
+        let dir = tempfile::TempDir::new().expect("failed to create temp directory");
         let sock_path = dir.path().join("connect.sock");
 
-        let listener = UdsListener::bind(&sock_path).unwrap();
+        let listener = UdsListener::bind(&sock_path).expect("failed to bind UDS listener");
         let connector = UdsConnector::new(&sock_path);
 
-        let accept_task = tokio::spawn(async move { listener.accept().await.unwrap() });
+        let accept_task =
+            tokio::spawn(async move { listener.accept().await.expect("listener failed to accept connection") });
 
-        let client_stream = connector.connect().await.unwrap();
-        let (server_stream, _peer) = accept_task.await.unwrap();
+        let client_stream = connector.connect().await.expect("connector failed to connect");
+        let (server_stream, _peer) = accept_task.await.expect("accept task should not panic");
 
         drop(client_stream);
         drop(server_stream);
@@ -128,18 +133,22 @@ mod tests {
 
     #[tokio::test]
     async fn peer_cred_populated() {
-        let dir = tempfile::TempDir::new().unwrap();
+        let dir = tempfile::TempDir::new().expect("failed to create temp directory");
         let sock_path = dir.path().join("cred.sock");
 
-        let listener = UdsListener::bind(&sock_path).unwrap();
+        let listener = UdsListener::bind(&sock_path).expect("failed to bind UDS listener");
 
         let client = tokio::spawn({
             let path = sock_path.clone();
-            async move { UnixStream::connect(path).await.unwrap() }
+            async move {
+                UnixStream::connect(path)
+                    .await
+                    .expect("client failed to connect to UDS")
+            }
         });
 
-        let (_stream, peer) = listener.accept().await.unwrap();
-        let _ = client.await.unwrap();
+        let (_stream, peer) = listener.accept().await.expect("listener failed to accept connection");
+        let _ = client.await.expect("client task should not panic");
 
         assert!(
             matches!(peer, PeerIdentity::Unix { .. }),

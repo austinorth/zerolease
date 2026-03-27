@@ -123,11 +123,15 @@ mod tests {
         let key = test_key(0xAA);
         let plaintext = b"secret-api-token-12345";
 
-        let sealed = cipher.encrypt(plaintext, &key).unwrap();
+        let sealed = cipher
+            .encrypt(plaintext, &key)
+            .expect("AES-256-GCM encrypt should succeed");
         assert_eq!(sealed.algorithm, CipherAlgorithm::Aes256Gcm);
         assert_eq!(sealed.nonce.len(), 12); // AES-GCM nonce is 12 bytes
 
-        let decrypted = cipher.decrypt(&sealed, &key).unwrap();
+        let decrypted = cipher
+            .decrypt(&sealed, &key)
+            .expect("AES-256-GCM decrypt should succeed");
         assert_eq!(decrypted.as_slice(), plaintext);
     }
 
@@ -137,25 +141,33 @@ mod tests {
         let key = test_key(0xBB);
         let plaintext = b"another-secret-value";
 
-        let sealed = cipher.encrypt(plaintext, &key).unwrap();
+        let sealed = cipher
+            .encrypt(plaintext, &key)
+            .expect("XChaCha20-Poly1305 encrypt should succeed");
         assert_eq!(sealed.algorithm, CipherAlgorithm::XChaCha20Poly1305);
         assert_eq!(sealed.nonce.len(), 24); // XChaCha20 nonce is 24 bytes
 
-        let decrypted = cipher.decrypt(&sealed, &key).unwrap();
+        let decrypted = cipher
+            .decrypt(&sealed, &key)
+            .expect("XChaCha20-Poly1305 decrypt should succeed");
         assert_eq!(decrypted.as_slice(), plaintext);
     }
 
     #[test]
     fn algorithm_stored_correctly_aes() {
         let cipher = Cipher::new(CipherAlgorithm::Aes256Gcm);
-        let sealed = cipher.encrypt(b"data", &test_key(0x01)).unwrap();
+        let sealed = cipher
+            .encrypt(b"data", &test_key(0x01))
+            .expect("AES-256-GCM encrypt should succeed for algorithm check");
         assert_eq!(sealed.algorithm, CipherAlgorithm::Aes256Gcm);
     }
 
     #[test]
     fn algorithm_stored_correctly_xchacha() {
         let cipher = Cipher::new(CipherAlgorithm::XChaCha20Poly1305);
-        let sealed = cipher.encrypt(b"data", &test_key(0x02)).unwrap();
+        let sealed = cipher
+            .encrypt(b"data", &test_key(0x02))
+            .expect("XChaCha20-Poly1305 encrypt should succeed for algorithm check");
         assert_eq!(sealed.algorithm, CipherAlgorithm::XChaCha20Poly1305);
     }
 
@@ -164,8 +176,12 @@ mod tests {
         let cipher = Cipher::new(CipherAlgorithm::Aes256Gcm);
         let key = test_key(0xCC);
 
-        let sealed = cipher.encrypt(b"", &key).unwrap();
-        let decrypted = cipher.decrypt(&sealed, &key).unwrap();
+        let sealed = cipher
+            .encrypt(b"", &key)
+            .expect("encrypting empty plaintext should succeed");
+        let decrypted = cipher
+            .decrypt(&sealed, &key)
+            .expect("decrypting empty ciphertext should succeed");
         assert!(decrypted.is_empty());
     }
 
@@ -177,7 +193,9 @@ mod tests {
         let key_a = test_key(0x01);
         let key_b = test_key(0x02);
 
-        let sealed = cipher.encrypt(b"secret", &key_a).unwrap();
+        let sealed = cipher
+            .encrypt(b"secret", &key_a)
+            .expect("encrypt should succeed before wrong-key decryption test");
         let result = cipher.decrypt(&sealed, &key_b);
         assert!(result.is_err());
     }
@@ -187,7 +205,9 @@ mod tests {
         let cipher = Cipher::new(CipherAlgorithm::Aes256Gcm);
         let key = test_key(0xDD);
 
-        let mut sealed = cipher.encrypt(b"secret", &key).unwrap();
+        let mut sealed = cipher
+            .encrypt(b"secret", &key)
+            .expect("encrypt should succeed before tampered-ciphertext test");
         sealed.ciphertext[0] ^= 0xFF;
 
         let result = cipher.decrypt(&sealed, &key);
@@ -199,7 +219,9 @@ mod tests {
         let cipher = Cipher::new(CipherAlgorithm::Aes256Gcm);
         let key = test_key(0xEE);
 
-        let mut sealed = cipher.encrypt(b"secret", &key).unwrap();
+        let mut sealed = cipher
+            .encrypt(b"secret", &key)
+            .expect("encrypt should succeed before tampered-nonce test");
         sealed.nonce[0] ^= 0xFF;
 
         let result = cipher.decrypt(&sealed, &key);
@@ -211,7 +233,9 @@ mod tests {
         let cipher = Cipher::new(CipherAlgorithm::Aes256Gcm);
         let key = test_key(0xFF);
 
-        let sealed = cipher.encrypt(b"secret", &key).unwrap();
+        let sealed = cipher
+            .encrypt(b"secret", &key)
+            .expect("encrypt should succeed before cross-algorithm mismatch test");
         // Manually construct a Sealed with the wrong algorithm tag.
         // The AES-GCM 12-byte nonce will fail the length check in
         // decrypt_xchacha (which expects 24 bytes), returning an error.

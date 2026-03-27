@@ -198,17 +198,25 @@ mod tests {
     #[tokio::test]
     #[ignore] // requires AWS credentials and a KMS key
     async fn create_and_load_dek_round_trip() {
-        let dir = TempDir::new().unwrap();
+        let dir = TempDir::new().expect("failed to create temp directory");
         let dek_path = dir.path().join("test-dek.enc");
 
-        let source = KmsSource::new(test_key_id(), test_region(), &dek_path).await.unwrap();
+        let source = KmsSource::new(test_key_id(), test_region(), &dek_path)
+            .await
+            .expect("failed to create KMS source");
 
         // First call: creates a new DEK, encrypts with KMS, saves blob
-        let dek1 = source.load_or_create_dek().await.unwrap();
+        let dek1 = source
+            .load_or_create_dek()
+            .await
+            .expect("first call should create a new DEK");
         assert!(dek_path.exists(), "encrypted DEK blob should be written");
 
         // Second call: loads existing blob, decrypts with KMS
-        let dek2 = source.load_or_create_dek().await.unwrap();
+        let dek2 = source
+            .load_or_create_dek()
+            .await
+            .expect("second call should load the existing DEK");
         assert_eq!(
             dek1.as_bytes(),
             dek2.as_bytes(),
@@ -219,21 +227,23 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn rotate_dek_produces_new_encrypted_blob() {
-        let dir = TempDir::new().unwrap();
+        let dir = TempDir::new().expect("failed to create temp directory");
         let dek_path = dir.path().join("rotate-dek.enc");
 
-        let source = KmsSource::new(test_key_id(), test_region(), &dek_path).await.unwrap();
+        let source = KmsSource::new(test_key_id(), test_region(), &dek_path)
+            .await
+            .expect("failed to create KMS source");
 
         // Create initial DEK
-        let original_dek = source.load_or_create_dek().await.unwrap();
-        let original_blob = std::fs::read(&dek_path).unwrap();
+        let original_dek = source.load_or_create_dek().await.expect("failed to create initial DEK");
+        let original_blob = std::fs::read(&dek_path).expect("failed to read initial encrypted DEK blob");
 
         // Generate a new DEK and rotate
         let new_dek = DataEncryptionKey::from_bytes([0xBB; 32]);
-        let encrypted = source.rotate_dek(&new_dek).await.unwrap();
+        let encrypted = source.rotate_dek(&new_dek).await.expect("DEK rotation should succeed");
 
         // The encrypted blob should have changed
-        let rotated_blob = std::fs::read(&dek_path).unwrap();
+        let rotated_blob = std::fs::read(&dek_path).expect("failed to read rotated encrypted DEK blob");
         assert_ne!(
             original_blob, rotated_blob,
             "rotated DEK blob should differ from original"
@@ -244,7 +254,10 @@ mod tests {
         assert!(!encrypted.ciphertext.is_empty(), "EncryptedDek should have ciphertext");
 
         // Load the rotated DEK — should get the new one, not the original
-        let loaded = source.load_or_create_dek().await.unwrap();
+        let loaded = source
+            .load_or_create_dek()
+            .await
+            .expect("failed to load DEK after rotation");
         assert_eq!(
             loaded.as_bytes(),
             new_dek.as_bytes(),
@@ -260,10 +273,12 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn description_contains_key_id() {
-        let dir = TempDir::new().unwrap();
+        let dir = TempDir::new().expect("failed to create temp directory");
         let dek_path = dir.path().join("desc-dek.enc");
 
-        let source = KmsSource::new(test_key_id(), test_region(), &dek_path).await.unwrap();
+        let source = KmsSource::new(test_key_id(), test_region(), &dek_path)
+            .await
+            .expect("failed to create KMS source");
 
         let desc = source.description();
         assert!(desc.starts_with("kms:"), "description should start with 'kms:'");
@@ -276,13 +291,16 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn wrong_ciphertext_fails_decryption() {
-        let dir = TempDir::new().unwrap();
+        let dir = TempDir::new().expect("failed to create temp directory");
         let dek_path = dir.path().join("bad-dek.enc");
 
         // Write garbage to the DEK blob file
-        std::fs::write(&dek_path, b"this is not a valid KMS ciphertext blob").unwrap();
+        std::fs::write(&dek_path, b"this is not a valid KMS ciphertext blob")
+            .expect("failed to write garbage DEK blob");
 
-        let source = KmsSource::new(test_key_id(), test_region(), &dek_path).await.unwrap();
+        let source = KmsSource::new(test_key_id(), test_region(), &dek_path)
+            .await
+            .expect("failed to create KMS source");
 
         // Should fail to decrypt the garbage
         let result = source.load_or_create_dek().await;

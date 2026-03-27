@@ -8,7 +8,7 @@ use libfuzzer_sys::fuzz_target;
 use tokio::runtime::Runtime;
 
 fuzz_target!(|data: &[u8]| {
-    let rt = Runtime::new().unwrap();
+    let rt = Runtime::new().expect("failed to create tokio runtime for fuzz target");
     rt.block_on(async {
         let mut cursor = std::io::Cursor::new(data.to_vec());
         // Should never panic — only Ok or Err

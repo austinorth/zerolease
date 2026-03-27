@@ -459,6 +459,7 @@ mod tests {
     use super::*;
     use crate::audit::*;
     use crate::auth::{AllowAllAdmin, ConnectionIdentity, Role};
+    use crate::error::Result;
     use crate::keysource::env::EnvVarSource;
     use crate::lease::LeaseTerms;
     use crate::policy::{AgentPattern, PolicyConfig, PolicyEngine, PolicyGrant, SecretPattern};
@@ -466,7 +467,7 @@ mod tests {
     use crate::store::CipherAlgorithm;
     use crate::store::sqlite::SqliteStore;
     use crate::transport::PeerIdentity;
-    use crate::types::{AgentId, DomainScope, SecretName};
+    use crate::types::{AgentId, DomainScope, LeaseId, SecretName};
     use crate::vault::Vault;
 
     /// A no-op audit log that discards all events. For testing only.
@@ -474,19 +475,19 @@ mod tests {
 
     #[async_trait::async_trait]
     impl AuditLog for NoopAuditLog {
-        async fn record(&self, _entry: AuditEntry) -> crate::error::Result<()> {
+        async fn record(&self, _entry: AuditEntry) -> Result<()> {
             Ok(())
         }
 
-        async fn query_by_agent(&self, _agent: &AgentId, _limit: usize) -> crate::error::Result<Vec<AuditEntry>> {
+        async fn query_by_agent(&self, _agent: &AgentId, _limit: usize) -> Result<Vec<AuditEntry>> {
             Ok(vec![])
         }
 
-        async fn query_by_secret(&self, _secret: &SecretName, _limit: usize) -> crate::error::Result<Vec<AuditEntry>> {
+        async fn query_by_secret(&self, _secret: &SecretName, _limit: usize) -> Result<Vec<AuditEntry>> {
             Ok(vec![])
         }
 
-        async fn query_by_lease(&self, _lease: &crate::types::LeaseId) -> crate::error::Result<Vec<AuditEntry>> {
+        async fn query_by_lease(&self, _lease: &LeaseId) -> Result<Vec<AuditEntry>> {
             Ok(vec![])
         }
     }
@@ -499,11 +500,15 @@ mod tests {
         env_var: &str,
         grants: Vec<PolicyGrant>,
     ) -> (Arc<Vault<EnvVarSource, SqliteStore, NoopAuditLog>>, NamedTempFile) {
-        unsafe { std::env::set_var(env_var, "ab".repeat(32)) };
+        // SAFETY: tests run single-threaded via --test-threads=1
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::set_var(env_var, "ab".repeat(32))
+        };
 
         let key_source = EnvVarSource::new(env_var);
-        let tmp = NamedTempFile::new().unwrap();
-        let store = SqliteStore::new(tmp.path()).await.unwrap();
+        let tmp = NamedTempFile::new().expect("should create temp file");
+        let store = SqliteStore::new(tmp.path()).await.expect("should create store");
         let audit = NoopAuditLog;
 
         let policy = PolicyEngine::new(PolicyConfig {
@@ -512,7 +517,7 @@ mod tests {
         });
 
         let vault = Arc::new(Vault::new(key_source, store, audit, policy, CipherAlgorithm::Aes256Gcm));
-        vault.initialize().await.unwrap();
+        vault.initialize().await.expect("should initialize vault");
         (vault, tmp)
     }
 
@@ -580,7 +585,7 @@ mod tests {
         let resp = dispatch(&vault, &req, &peer, &admin_identity()).await;
 
         assert!(resp.ok);
-        let result = resp.result.unwrap();
+        let result = resp.result.expect("should get store_secret result");
         assert_eq!(result["name"], "my-token");
     }
 
@@ -598,7 +603,7 @@ mod tests {
         let resp = dispatch(&vault, &req, &peer, &admin_identity()).await;
 
         assert!(resp.ok);
-        let result = resp.result.unwrap();
+        let result = resp.result.expect("should get request_lease result");
         assert!(result.get("lease_id").is_some());
     }
 
@@ -613,7 +618,11 @@ mod tests {
 
         // Lease
         let lease_resp = dispatch(&vault, &lease_request("my-token"), &peer, &admin_identity()).await;
-        let lease_id = lease_resp.result.unwrap()["lease_id"].as_str().unwrap().to_string();
+        let lease_result = lease_resp.result.expect("should get lease result");
+        let lease_id = lease_result["lease_id"]
+            .as_str()
+            .expect("should get lease_id as string")
+            .to_string();
 
         // Access
         let access_req = Request {
@@ -627,10 +636,10 @@ mod tests {
         let resp = dispatch(&vault, &access_req, &peer, &admin_identity()).await;
 
         assert!(resp.ok);
-        let result = resp.result.unwrap();
+        let result = resp.result.expect("should get access_secret result");
         let decoded = base64::engine::general_purpose::STANDARD
-            .decode(result["secret"].as_str().unwrap())
-            .unwrap();
+            .decode(result["secret"].as_str().expect("should get secret as string"))
+            .expect("should decode base64 secret");
         assert_eq!(decoded, plaintext);
     }
 
@@ -652,8 +661,8 @@ mod tests {
         let resp = dispatch(&vault, &req, &peer, &admin_identity()).await;
 
         assert!(resp.ok);
-        let result = resp.result.unwrap();
-        let secrets = result["secrets"].as_array().unwrap();
+        let result = resp.result.expect("should get list_secrets result");
+        let secrets = result["secrets"].as_array().expect("should get secrets as array");
         assert_eq!(secrets.len(), 2);
     }
 
@@ -665,7 +674,11 @@ mod tests {
         // Store + lease
         dispatch(&vault, &store_request("my-token", b"val"), &peer, &admin_identity()).await;
         let lease_resp = dispatch(&vault, &lease_request("my-token"), &peer, &admin_identity()).await;
-        let lease_id = lease_resp.result.unwrap()["lease_id"].as_str().unwrap().to_string();
+        let lease_result = lease_resp.result.expect("should get lease result for renewal");
+        let lease_id = lease_result["lease_id"]
+            .as_str()
+            .expect("should get lease_id as string")
+            .to_string();
 
         // Renew
         let req = Request {
@@ -706,7 +719,11 @@ mod tests {
         };
         let list_resp = dispatch(&vault, &list_req, &peer, &admin_identity()).await;
         assert!(list_resp.ok);
-        let secrets = list_resp.result.unwrap()["secrets"].as_array().unwrap().clone();
+        let list_result = list_resp.result.expect("should get list_secrets result after delete");
+        let secrets = list_result["secrets"]
+            .as_array()
+            .expect("should get secrets as array")
+            .clone();
         assert!(secrets.is_empty());
     }
 
@@ -718,7 +735,11 @@ mod tests {
         // Store + lease
         dispatch(&vault, &store_request("my-token", b"val"), &peer, &admin_identity()).await;
         let lease_resp = dispatch(&vault, &lease_request("my-token"), &peer, &admin_identity()).await;
-        let lease_id = lease_resp.result.unwrap()["lease_id"].as_str().unwrap().to_string();
+        let lease_result = lease_resp.result.expect("should get lease result for revocation");
+        let lease_id = lease_result["lease_id"]
+            .as_str()
+            .expect("should get lease_id as string")
+            .to_string();
 
         // Revoke
         let req = Request {
@@ -752,9 +773,14 @@ mod tests {
         let resp = dispatch(&vault, &req, &peer, &admin_identity()).await;
 
         assert!(resp.ok);
-        let result = resp.result.unwrap();
+        let result = resp.result.expect("should get revoke_all_for_agent result");
         assert!(result.get("revoked_count").is_some());
-        assert!(result["revoked_count"].as_u64().unwrap() >= 1);
+        assert!(
+            result["revoked_count"]
+                .as_u64()
+                .expect("should get revoked_count as u64")
+                >= 1
+        );
     }
 
     #[tokio::test]
@@ -770,7 +796,7 @@ mod tests {
         let resp = dispatch(&vault, &req, &peer, &admin_identity()).await;
 
         assert!(!resp.ok);
-        let err = resp.error.unwrap();
+        let err = resp.error.expect("should get error for unknown method");
         assert_eq!(err.code, "invalid_request");
     }
 
@@ -785,11 +811,11 @@ mod tests {
     /// Perform a successful handshake on the client side of a duplex stream.
     async fn client_handshake(client: &mut tokio::io::DuplexStream) {
         let hello = ClientHello::new();
-        let bytes = serde_json::to_vec(&hello).unwrap();
-        write_frame(client, &bytes).await.unwrap();
+        let bytes = serde_json::to_vec(&hello).expect("should serialize ClientHello");
+        write_frame(client, &bytes).await.expect("should write handshake frame");
 
-        let resp_bytes = read_frame(client).await.unwrap();
-        let server_hello: ServerHello = serde_json::from_slice(&resp_bytes).unwrap();
+        let resp_bytes = read_frame(client).await.expect("should read server handshake response");
+        let server_hello: ServerHello = serde_json::from_slice(&resp_bytes).expect("should deserialize ServerHello");
         assert!(server_hello.ok);
     }
 
@@ -807,20 +833,26 @@ mod tests {
 
         // Handshake
         let hello = ClientHello::new();
-        let bytes = serde_json::to_vec(&hello).unwrap();
-        write_frame(&mut client, &bytes).await.unwrap();
+        let bytes = serde_json::to_vec(&hello).expect("should serialize ClientHello");
+        write_frame(&mut client, &bytes)
+            .await
+            .expect("should write ClientHello frame");
 
-        let resp_bytes = read_frame(&mut client).await.unwrap();
-        let server_hello: ServerHello = serde_json::from_slice(&resp_bytes).unwrap();
+        let resp_bytes = read_frame(&mut client).await.expect("should read ServerHello frame");
+        let server_hello: ServerHello = serde_json::from_slice(&resp_bytes).expect("should deserialize ServerHello");
         assert!(server_hello.ok);
 
         // store_secret request
         let req = store_request("handler-token", b"handler-secret");
-        let req_bytes = serde_json::to_vec(&req).unwrap();
-        write_frame(&mut client, &req_bytes).await.unwrap();
+        let req_bytes = serde_json::to_vec(&req).expect("should serialize store_secret request");
+        write_frame(&mut client, &req_bytes)
+            .await
+            .expect("should write store_secret request frame");
 
-        let resp_bytes = read_frame(&mut client).await.unwrap();
-        let resp: Response = serde_json::from_slice(&resp_bytes).unwrap();
+        let resp_bytes = read_frame(&mut client)
+            .await
+            .expect("should read store_secret response frame");
+        let resp: Response = serde_json::from_slice(&resp_bytes).expect("should deserialize store_secret response");
         assert!(resp.ok);
     }
 
@@ -841,17 +873,27 @@ mod tests {
             protocol: "not-zerolease".to_string(),
             version: 1,
         };
-        let bytes = serde_json::to_vec(&hello).unwrap();
-        write_frame(&mut client, &bytes).await.unwrap();
+        let bytes = serde_json::to_vec(&hello).expect("should serialize bad ClientHello");
+        write_frame(&mut client, &bytes)
+            .await
+            .expect("should write bad ClientHello frame");
 
-        let resp_bytes = read_frame(&mut client).await.unwrap();
-        let server_hello: ServerHello = serde_json::from_slice(&resp_bytes).unwrap();
+        let resp_bytes = read_frame(&mut client)
+            .await
+            .expect("should read rejection ServerHello");
+        let server_hello: ServerHello =
+            serde_json::from_slice(&resp_bytes).expect("should deserialize rejection ServerHello");
         assert!(!server_hello.ok);
 
         // Next read should get EOF (connection closed)
         let result = read_frame(&mut client).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("unexpected EOF"));
+        assert!(
+            result
+                .expect_err("should get EOF error after rejected handshake")
+                .to_string()
+                .contains("unexpected EOF")
+        );
     }
 
     #[tokio::test]
@@ -871,19 +913,29 @@ mod tests {
 
         // Write a 4-byte length header claiming MAX_FRAME_SIZE + 1 bytes
         let oversize_len: u32 = 1_048_577;
-        client.write_all(&oversize_len.to_be_bytes()).await.unwrap();
+        client
+            .write_all(&oversize_len.to_be_bytes())
+            .await
+            .expect("should write oversize length header");
 
         // Read the error response
-        let resp_bytes = read_frame(&mut client).await.unwrap();
-        let resp: Response = serde_json::from_slice(&resp_bytes).unwrap();
+        let resp_bytes = read_frame(&mut client)
+            .await
+            .expect("should read framing error response");
+        let resp: Response = serde_json::from_slice(&resp_bytes).expect("should deserialize framing error response");
         assert!(!resp.ok);
-        let err = resp.error.unwrap();
+        let err = resp.error.expect("should get error for framing violation");
         assert_eq!(err.code, "invalid_request");
 
         // Next read should get EOF
         let result = read_frame(&mut client).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("unexpected EOF"));
+        assert!(
+            result
+                .expect_err("should get EOF error after framing error")
+                .to_string()
+                .contains("unexpected EOF")
+        );
     }
 
     #[tokio::test]
@@ -907,22 +959,30 @@ mod tests {
             method: "nonexistent".to_string(),
             params: serde_json::json!({}),
         };
-        let bytes = serde_json::to_vec(&bad_req).unwrap();
-        write_frame(&mut client, &bytes).await.unwrap();
+        let bytes = serde_json::to_vec(&bad_req).expect("should serialize bad request");
+        write_frame(&mut client, &bytes)
+            .await
+            .expect("should write bad request frame");
 
-        let resp_bytes = read_frame(&mut client).await.unwrap();
-        let resp: Response = serde_json::from_slice(&resp_bytes).unwrap();
+        let resp_bytes = read_frame(&mut client)
+            .await
+            .expect("should read error response for bad request");
+        let resp: Response = serde_json::from_slice(&resp_bytes).expect("should deserialize error response");
         assert!(!resp.ok);
-        let err = resp.error.unwrap();
+        let err = resp.error.expect("should get error for invalid method");
         assert_eq!(err.code, "invalid_request");
 
         // Connection should still be alive — send a valid request
         let req = store_request("still-alive", b"value");
-        let req_bytes = serde_json::to_vec(&req).unwrap();
-        write_frame(&mut client, &req_bytes).await.unwrap();
+        let req_bytes = serde_json::to_vec(&req).expect("should serialize follow-up request");
+        write_frame(&mut client, &req_bytes)
+            .await
+            .expect("should write follow-up request frame");
 
-        let resp_bytes = read_frame(&mut client).await.unwrap();
-        let resp: Response = serde_json::from_slice(&resp_bytes).unwrap();
+        let resp_bytes = read_frame(&mut client)
+            .await
+            .expect("should read follow-up response frame");
+        let resp: Response = serde_json::from_slice(&resp_bytes).expect("should deserialize follow-up response");
         assert!(resp.ok);
     }
 
@@ -939,7 +999,7 @@ mod tests {
         let resp = dispatch(&vault, &req, &peer, &admin_identity()).await;
 
         assert!(!resp.ok);
-        let err = resp.error.unwrap();
+        let err = resp.error.expect("should get error for malformed params");
         assert_eq!(err.code, "invalid_request");
     }
 }

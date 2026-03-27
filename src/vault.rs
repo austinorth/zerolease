@@ -591,19 +591,19 @@ mod tests {
 
     #[async_trait::async_trait]
     impl AuditLog for NoopAuditLog {
-        async fn record(&self, _entry: AuditEntry) -> crate::error::Result<()> {
+        async fn record(&self, _entry: AuditEntry) -> Result<()> {
             Ok(())
         }
 
-        async fn query_by_agent(&self, _agent: &AgentId, _limit: usize) -> crate::error::Result<Vec<AuditEntry>> {
+        async fn query_by_agent(&self, _agent: &AgentId, _limit: usize) -> Result<Vec<AuditEntry>> {
             Ok(vec![])
         }
 
-        async fn query_by_secret(&self, _secret: &SecretName, _limit: usize) -> crate::error::Result<Vec<AuditEntry>> {
+        async fn query_by_secret(&self, _secret: &SecretName, _limit: usize) -> Result<Vec<AuditEntry>> {
             Ok(vec![])
         }
 
-        async fn query_by_lease(&self, _lease: &LeaseId) -> crate::error::Result<Vec<AuditEntry>> {
+        async fn query_by_lease(&self, _lease: &LeaseId) -> Result<Vec<AuditEntry>> {
             Ok(vec![])
         }
     }
@@ -613,12 +613,18 @@ mod tests {
     async fn end_to_end_store_lease_access() {
         // Set up env var key
         let key_var = "ZEROLEASE_TEST_VAULT_KEY";
-        unsafe { std::env::set_var(key_var, "ab".repeat(32)) };
+        // SAFETY: tests run single-threaded via --test-threads=1
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::set_var(key_var, "ab".repeat(32))
+        };
 
         // Create components
         let key_source = EnvVarSource::new(key_var);
-        let tmp = NamedTempFile::new().unwrap();
-        let store = SqliteStore::new(tmp.path()).await.unwrap();
+        let tmp = NamedTempFile::new().expect("failed to create temp file for test DB");
+        let store = SqliteStore::new(tmp.path())
+            .await
+            .expect("failed to initialize SQLite store");
         let audit = NoopAuditLog;
 
         let policy = PolicyEngine::new(PolicyConfig {
@@ -632,7 +638,7 @@ mod tests {
         });
 
         let vault = Vault::new(key_source, store, audit, policy, CipherAlgorithm::Aes256Gcm);
-        vault.initialize().await.unwrap();
+        vault.initialize().await.expect("vault initialization should succeed");
 
         // Store a secret
         let peer = PeerIdentity::Anonymous;
@@ -645,7 +651,7 @@ mod tests {
                 &peer,
             )
             .await
-            .unwrap();
+            .expect("store_secret should succeed");
 
         assert_eq!(meta.name, SecretName::new("test-token"));
         assert_eq!(meta.version, 1);
@@ -659,13 +665,13 @@ mod tests {
                 &peer,
             )
             .await
-            .unwrap();
+            .expect("request_lease should succeed");
 
         // Access the secret through the lease
         let guard = vault
             .access_secret(&grant.lease_id, "api.example.com", &peer)
             .await
-            .unwrap();
+            .expect("access_secret should succeed");
 
         // Verify the decrypted value matches the original
         guard.expose(|secret| {
@@ -673,6 +679,9 @@ mod tests {
         });
 
         // Clean up
-        unsafe { std::env::remove_var(key_var) };
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::remove_var(key_var)
+        };
     }
 }

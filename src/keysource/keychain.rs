@@ -115,18 +115,24 @@ mod tests {
         let source = KeychainSource::new(service, account);
 
         // First call: creates a new DEK
-        let dek1 = source.load_or_create_dek().await.unwrap();
+        let dek1 = source
+            .load_or_create_dek()
+            .await
+            .expect("first call should create a new DEK");
 
         // Second call: loads the existing DEK
-        let dek2 = source.load_or_create_dek().await.unwrap();
+        let dek2 = source
+            .load_or_create_dek()
+            .await
+            .expect("second call should load the existing DEK");
 
         assert_eq!(dek1.as_bytes(), dek2.as_bytes());
 
         // Clean up
         keyring::Entry::new(service, account)
-            .unwrap()
+            .expect("failed to create keyring entry for cleanup")
             .delete_credential()
-            .unwrap();
+            .expect("failed to delete test credential from keychain");
     }
 
     #[test]

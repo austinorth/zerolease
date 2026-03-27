@@ -283,9 +283,12 @@ mod tests {
 
     /// Create a fresh store and clean up any previous test data.
     async fn test_store() -> PostgresStore {
-        let store = PostgresStore::new(&test_url()).await.unwrap();
+        let store = PostgresStore::new(&test_url()).await.expect("should create store");
         // Clean slate for each test
-        sqlx::query("DELETE FROM secrets").execute(&store.pool).await.unwrap();
+        sqlx::query("DELETE FROM secrets")
+            .execute(&store.pool)
+            .await
+            .expect("should clean test data");
         store
     }
 
@@ -306,13 +309,16 @@ mod tests {
         let store = test_store().await;
         let params = test_params("pg-secret");
 
-        let stored = store.put(params).await.unwrap();
+        let stored = store.put(params).await.expect("should put secret");
         assert_eq!(stored.name, SecretName::new("pg-secret"));
         assert_eq!(stored.ciphertext, vec![1, 2, 3, 4]);
         assert_eq!(stored.algorithm, CipherAlgorithm::Aes256Gcm);
         assert_eq!(stored.version, 1);
 
-        let fetched = store.get(&SecretName::new("pg-secret")).await.unwrap();
+        let fetched = store
+            .get(&SecretName::new("pg-secret"))
+            .await
+            .expect("should get secret");
         assert_eq!(fetched.name, stored.name);
         assert_eq!(fetched.ciphertext, stored.ciphertext);
         assert_eq!(fetched.nonce, stored.nonce);
@@ -322,7 +328,7 @@ mod tests {
     #[ignore]
     async fn put_duplicate_name_errors() {
         let store = test_store().await;
-        store.put(test_params("pg-dup")).await.unwrap();
+        store.put(test_params("pg-dup")).await.expect("should put first secret");
 
         let result = store.put(test_params("pg-dup")).await;
         assert!(result.is_err());
@@ -344,7 +350,7 @@ mod tests {
     #[ignore]
     async fn update_increments_version() {
         let store = test_store().await;
-        store.put(test_params("pg-versioned")).await.unwrap();
+        store.put(test_params("pg-versioned")).await.expect("should put secret");
 
         let updated = store
             .update(
@@ -354,7 +360,7 @@ mod tests {
                 CipherAlgorithm::Aes256Gcm,
             )
             .await
-            .unwrap();
+            .expect("should update secret");
 
         assert_eq!(updated.version, 2);
         assert_eq!(updated.ciphertext, vec![10, 20, 30]);
@@ -381,9 +387,12 @@ mod tests {
     #[ignore]
     async fn delete_removes_secret() {
         let store = test_store().await;
-        store.put(test_params("pg-doomed")).await.unwrap();
+        store.put(test_params("pg-doomed")).await.expect("should put secret");
 
-        store.delete(&SecretName::new("pg-doomed")).await.unwrap();
+        store
+            .delete(&SecretName::new("pg-doomed"))
+            .await
+            .expect("should delete secret");
 
         let result = store.get(&SecretName::new("pg-doomed")).await;
         assert!(result.is_err());
@@ -403,10 +412,16 @@ mod tests {
     #[ignore]
     async fn list_returns_metadata() {
         let store = test_store().await;
-        store.put(test_params("pg-first")).await.unwrap();
-        store.put(test_params("pg-second")).await.unwrap();
+        store
+            .put(test_params("pg-first"))
+            .await
+            .expect("should put first secret");
+        store
+            .put(test_params("pg-second"))
+            .await
+            .expect("should put second secret");
 
-        let list = store.list().await.unwrap();
+        let list = store.list().await.expect("should list secrets");
         assert_eq!(list.len(), 2);
 
         let names: Vec<String> = list.iter().map(|m| m.name.as_str().to_string()).collect();
@@ -418,8 +433,14 @@ mod tests {
     #[ignore]
     async fn batch_update_is_atomic() {
         let store = test_store().await;
-        store.put(test_params("pg-batch-a")).await.unwrap();
-        store.put(test_params("pg-batch-b")).await.unwrap();
+        store
+            .put(test_params("pg-batch-a"))
+            .await
+            .expect("should put first batch secret");
+        store
+            .put(test_params("pg-batch-b"))
+            .await
+            .expect("should put second batch secret");
 
         // Successful batch update
         let updates = vec![
@@ -436,13 +457,19 @@ mod tests {
                 algorithm: CipherAlgorithm::Aes256Gcm,
             },
         ];
-        store.batch_update(updates).await.unwrap();
+        store.batch_update(updates).await.expect("should batch update secrets");
 
-        let a = store.get(&SecretName::new("pg-batch-a")).await.unwrap();
+        let a = store
+            .get(&SecretName::new("pg-batch-a"))
+            .await
+            .expect("should get first batch secret");
         assert_eq!(a.ciphertext, vec![10, 20]);
         assert_eq!(a.version, 2);
 
-        let b = store.get(&SecretName::new("pg-batch-b")).await.unwrap();
+        let b = store
+            .get(&SecretName::new("pg-batch-b"))
+            .await
+            .expect("should get second batch secret");
         assert_eq!(b.ciphertext, vec![30, 40]);
         assert_eq!(b.version, 2);
     }
@@ -451,7 +478,7 @@ mod tests {
     #[ignore]
     async fn batch_update_rolls_back_on_failure() {
         let store = test_store().await;
-        store.put(test_params("pg-rollback")).await.unwrap();
+        store.put(test_params("pg-rollback")).await.expect("should put secret");
 
         // Batch with one valid and one invalid (nonexistent) name
         let updates = vec![
@@ -473,7 +500,10 @@ mod tests {
         assert!(result.is_err(), "batch should fail on missing secret");
 
         // The first secret should NOT have been updated (transaction rolled back)
-        let secret = store.get(&SecretName::new("pg-rollback")).await.unwrap();
+        let secret = store
+            .get(&SecretName::new("pg-rollback"))
+            .await
+            .expect("should get secret after rollback");
         assert_eq!(
             secret.ciphertext,
             vec![1, 2, 3, 4],

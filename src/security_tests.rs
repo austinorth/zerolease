@@ -11,7 +11,7 @@ mod tests {
 
     use crate::audit::*;
     use crate::crypto::Cipher;
-    use crate::error::Error;
+    use crate::error::{Error, Result};
     use crate::keysource::DataEncryptionKey;
     use crate::lease::{Lease, LeaseGuard, LeaseTerms};
     use crate::policy::{AgentPattern, PolicyConfig, PolicyEngine, PolicyGrant, SecretPattern};
@@ -97,7 +97,9 @@ mod tests {
         // Encrypt the same plaintext many times — nonces must differ
         let mut nonces = Vec::new();
         for _ in 0..100 {
-            let sealed = cipher.encrypt(b"same-plaintext", &key).unwrap();
+            let sealed = cipher
+                .encrypt(b"same-plaintext", &key)
+                .expect("should encrypt same-plaintext");
             nonces.push(sealed.nonce);
         }
 
@@ -120,8 +122,8 @@ mod tests {
         let key_a = DataEncryptionKey::from_bytes([0xAA; 32]);
         let key_b = DataEncryptionKey::from_bytes([0xBB; 32]);
 
-        let sealed_a = cipher.encrypt(b"secret", &key_a).unwrap();
-        let sealed_b = cipher.encrypt(b"secret", &key_b).unwrap();
+        let sealed_a = cipher.encrypt(b"secret", &key_a).expect("should encrypt with key_a");
+        let sealed_b = cipher.encrypt(b"secret", &key_b).expect("should encrypt with key_b");
 
         assert_ne!(
             sealed_a.ciphertext, sealed_b.ciphertext,
@@ -135,12 +137,12 @@ mod tests {
         let key_a = DataEncryptionKey::from_bytes([0xAA; 32]);
         let key_b = DataEncryptionKey::from_bytes([0xBB; 32]);
 
-        let sealed = cipher.encrypt(b"secret", &key_a).unwrap();
+        let sealed = cipher.encrypt(b"secret", &key_a).expect("should encrypt with key_a");
         let result = cipher.decrypt(&sealed, &key_b);
 
         assert!(result.is_err());
         // The error should be generic — no information about WHY it failed
-        let err = result.unwrap_err().to_string();
+        let err = result.expect_err("should fail decryption with wrong key").to_string();
         assert!(
             !err.contains("key") && !err.contains("wrong"),
             "decryption error should not hint at the cause: {err}"
@@ -316,7 +318,7 @@ mod tests {
             vec![DomainScope::new("api.example.com")],
             &terms,
         );
-        lease.record_use().unwrap(); // first use OK
+        lease.record_use().expect("should record use on first access"); // first use OK
         assert!(lease.record_use().is_err(), "exhausted lease must reject further use");
     }
 
@@ -355,25 +357,31 @@ mod tests {
 
         // Set up a vault with a very low lease cap
         let key_var = "ZEROLEASE_SEC_LEASE_CAP";
-        unsafe { std::env::set_var(key_var, "aa".repeat(32)) };
+        // SAFETY: tests run single-threaded via --test-threads=1
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::set_var(key_var, "aa".repeat(32))
+        };
 
-        let dir = tempfile::TempDir::new().unwrap();
-        let store = SqliteStore::new(dir.path().join("secrets.db")).await.unwrap();
+        let dir = tempfile::TempDir::new().expect("should create temp dir for lease cap test");
+        let store = SqliteStore::new(dir.path().join("secrets.db"))
+            .await
+            .expect("should create store for lease cap test");
 
         // NoopAuditLog from the test infrastructure
         struct NoopAudit;
         #[async_trait::async_trait]
-        impl crate::audit::AuditLog for NoopAudit {
-            async fn record(&self, _: AuditEntry) -> crate::error::Result<()> {
+        impl AuditLog for NoopAudit {
+            async fn record(&self, _: AuditEntry) -> Result<()> {
                 Ok(())
             }
-            async fn query_by_agent(&self, _: &AgentId, _: usize) -> crate::error::Result<Vec<AuditEntry>> {
+            async fn query_by_agent(&self, _: &AgentId, _: usize) -> Result<Vec<AuditEntry>> {
                 Ok(vec![])
             }
-            async fn query_by_secret(&self, _: &SecretName, _: usize) -> crate::error::Result<Vec<AuditEntry>> {
+            async fn query_by_secret(&self, _: &SecretName, _: usize) -> Result<Vec<AuditEntry>> {
                 Ok(vec![])
             }
-            async fn query_by_lease(&self, _: &LeaseId) -> crate::error::Result<Vec<AuditEntry>> {
+            async fn query_by_lease(&self, _: &LeaseId) -> Result<Vec<AuditEntry>> {
                 Ok(vec![])
             }
         }
@@ -398,7 +406,10 @@ mod tests {
             )
             .with_max_leases_per_agent(3), // Very low cap for testing
         );
-        vault.initialize().await.unwrap();
+        vault
+            .initialize()
+            .await
+            .expect("should initialize vault for lease cap test");
 
         // Store a secret
         let peer = PeerIdentity::Anonymous;
@@ -411,7 +422,7 @@ mod tests {
                 &peer,
             )
             .await
-            .unwrap();
+            .expect("should store secret for lease cap test");
 
         // First 3 leases succeed
         for _ in 0..3 {
@@ -423,7 +434,7 @@ mod tests {
                     &peer,
                 )
                 .await
-                .unwrap();
+                .expect("should request lease within cap");
         }
 
         // 4th lease is rejected
@@ -437,10 +448,13 @@ mod tests {
             .await;
 
         assert!(result.is_err(), "lease cap must prevent flooding");
-        let err = result.unwrap_err().to_string();
+        let err = result.expect_err("should reject lease beyond cap").to_string();
         assert!(err.contains("maximum"), "error should mention the limit: {err}");
 
-        unsafe { std::env::remove_var(key_var) };
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::remove_var(key_var)
+        };
     }
 
     // ========================================================
@@ -463,7 +477,10 @@ mod tests {
         let (mut client, mut server) = tokio::io::duplex(1024);
         use tokio::io::AsyncWriteExt;
         let fake_len = (1_048_577u32).to_be_bytes();
-        client.write_all(&fake_len).await.unwrap();
+        client
+            .write_all(&fake_len)
+            .await
+            .expect("should write fake length to client");
         assert!(
             read_frame(&mut server).await.is_err(),
             "oversized read must be rejected"
@@ -490,24 +507,30 @@ mod tests {
         use crate::transport::PeerIdentity;
 
         let key_var = "ZEROLEASE_SEC_ROLE_TEST";
-        unsafe { std::env::set_var(key_var, "aa".repeat(32)) };
+        // SAFETY: tests run single-threaded via --test-threads=1
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::set_var(key_var, "aa".repeat(32))
+        };
 
-        let dir = tempfile::TempDir::new().unwrap();
-        let store = SqliteStore::new(dir.path().join("secrets.db")).await.unwrap();
+        let dir = tempfile::TempDir::new().expect("should create temp dir for role test");
+        let store = SqliteStore::new(dir.path().join("secrets.db"))
+            .await
+            .expect("should create store for role test");
 
         struct NoopAudit;
         #[async_trait::async_trait]
-        impl crate::audit::AuditLog for NoopAudit {
-            async fn record(&self, _: AuditEntry) -> crate::error::Result<()> {
+        impl AuditLog for NoopAudit {
+            async fn record(&self, _: AuditEntry) -> Result<()> {
                 Ok(())
             }
-            async fn query_by_agent(&self, _: &AgentId, _: usize) -> crate::error::Result<Vec<AuditEntry>> {
+            async fn query_by_agent(&self, _: &AgentId, _: usize) -> Result<Vec<AuditEntry>> {
                 Ok(vec![])
             }
-            async fn query_by_secret(&self, _: &SecretName, _: usize) -> crate::error::Result<Vec<AuditEntry>> {
+            async fn query_by_secret(&self, _: &SecretName, _: usize) -> Result<Vec<AuditEntry>> {
                 Ok(vec![])
             }
-            async fn query_by_lease(&self, _: &LeaseId) -> crate::error::Result<Vec<AuditEntry>> {
+            async fn query_by_lease(&self, _: &LeaseId) -> Result<Vec<AuditEntry>> {
                 Ok(vec![])
             }
         }
@@ -524,7 +547,7 @@ mod tests {
             policy,
             CipherAlgorithm::Aes256Gcm,
         ));
-        vault.initialize().await.unwrap();
+        vault.initialize().await.expect("should initialize vault for role test");
 
         let peer = PeerIdentity::Anonymous;
         let agent_identity = ConnectionIdentity {
@@ -541,7 +564,13 @@ mod tests {
         };
         let resp = dispatch(&vault, &store_req, &peer, &agent_identity).await;
         assert!(!resp.ok, "agent should not be able to call store_secret");
-        assert!(resp.error.as_ref().unwrap().code == "access_denied");
+        assert!(
+            resp.error
+                .as_ref()
+                .expect("should have error for denied store_secret")
+                .code
+                == "access_denied"
+        );
 
         // delete_secret should be denied
         let delete_req = Request {
@@ -561,7 +590,10 @@ mod tests {
         let resp = dispatch(&vault, &list_req, &peer, &agent_identity).await;
         assert!(!resp.ok, "agent should not be able to call list_secrets");
 
-        unsafe { std::env::remove_var(key_var) };
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::remove_var(key_var)
+        };
     }
 
     #[test]
@@ -579,7 +611,10 @@ mod tests {
         // not the requested one. We test this by checking the role behavior:
         // - Agent role: bound identity overrides request
         assert_eq!(identity.role, Role::Agent);
-        assert_eq!(identity.agent_id.as_ref().unwrap().as_str(), "real-agent");
+        assert_eq!(
+            identity.agent_id.as_ref().expect("should have bound agent id").as_str(),
+            "real-agent"
+        );
 
         // An orchestrator can assert any identity
         let orchestrator = ConnectionIdentity {
@@ -600,8 +635,10 @@ mod tests {
         use crate::store::sqlite::SqliteStore;
         use crate::store::{SecretStore, StoreSecretParams};
 
-        let tmp = tempfile::NamedTempFile::new().unwrap();
-        let store = SqliteStore::new(tmp.path()).await.unwrap();
+        let tmp = tempfile::NamedTempFile::new().expect("should create temp file for sql injection test");
+        let store = SqliteStore::new(tmp.path())
+            .await
+            .expect("should create store for sql injection test");
 
         // Try to inject SQL through the secret name
         let malicious_name = "'; DROP TABLE secrets; --";
@@ -615,15 +652,21 @@ mod tests {
         };
 
         // This should succeed (parameterized query, not string interpolation)
-        let stored = store.put(params).await.unwrap();
+        let stored = store.put(params).await.expect("should put secret with malicious name");
         assert_eq!(stored.name, SecretName::new(malicious_name));
 
         // Verify the table still exists and the secret is retrievable
-        let fetched = store.get(&SecretName::new(malicious_name)).await.unwrap();
+        let fetched = store
+            .get(&SecretName::new(malicious_name))
+            .await
+            .expect("should get secret with malicious name");
         assert_eq!(fetched.name, SecretName::new(malicious_name));
 
         // Verify list still works (table wasn't dropped)
-        let list = store.list().await.unwrap();
+        let list = store
+            .list()
+            .await
+            .expect("should list secrets after sql injection attempt");
         assert_eq!(list.len(), 1);
     }
 
@@ -632,8 +675,10 @@ mod tests {
         use crate::audit::sqlite::SqliteAuditLog;
         use crate::transport::PeerIdentity;
 
-        let tmp = tempfile::NamedTempFile::new().unwrap();
-        let log = SqliteAuditLog::new(tmp.path()).await.unwrap();
+        let tmp = tempfile::NamedTempFile::new().expect("should create temp file for audit sql injection test");
+        let log = SqliteAuditLog::new(tmp.path())
+            .await
+            .expect("should create audit log for sql injection test");
 
         let malicious_agent = "'; DROP TABLE audit_events; --";
         let entry = AuditEntry::new(
@@ -643,10 +688,15 @@ mod tests {
             AuditOutcome::Success,
         );
 
-        log.record(entry).await.unwrap();
+        log.record(entry)
+            .await
+            .expect("should record audit entry with malicious agent name");
 
         // Verify the table still exists
-        let results = log.query_by_agent(&AgentId::new(malicious_agent), 10).await.unwrap();
+        let results = log
+            .query_by_agent(&AgentId::new(malicious_agent), 10)
+            .await
+            .expect("should query by agent with malicious name");
         assert_eq!(results.len(), 1);
     }
 }

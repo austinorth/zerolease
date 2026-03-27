@@ -64,7 +64,7 @@
 //! | Trait | Purpose | Implementations |
 //! |-------|---------|-----------------|
 //! | [`KeySource`](keysource::KeySource) | DEK management | [`EnvVarSource`](keysource::env::EnvVarSource), [`KeychainSource`](keysource::keychain::KeychainSource), `KmsSource` (feature `kms`) |
-//! | [`SecretStore`](store::SecretStore) | Encrypted persistence | [`SqliteStore`](store::sqlite::SqliteStore), `PostgresStore` (feature `postgres`) |
+//! | [`SecretStore`](store::SecretStore) | Encrypted persistence | [`SqliteStore`](store::sqlite::SqliteStore), `PostgresStore` (feature `postgres`), `AwsSecretsManagerStore` (feature `aws-secretsmanager`) |
 //! | [`AuditLog`](audit::AuditLog) | Event logging | [`SqliteAuditLog`](audit::sqlite::SqliteAuditLog) |
 //! | [`VaultListener`](transport::VaultListener) | Accept connections | [`UdsListener`](transport::uds::UdsListener), `VsockListener` (feature `vsock`) |
 //!

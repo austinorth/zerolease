@@ -5,19 +5,25 @@
 //! vault layer handles encryption/decryption using the DEK from the
 //! key source.
 //!
-//! Two backends are planned:
+//! Three backends are available:
 //!
 //! - **SQLite**: single-file, zero-config, ideal for developer laptops and
 //!   single-host deployments.
 //! - **PostgreSQL**: for shared infrastructure where multiple vault instances
 //!   need a common secret store, or where you want to leverage existing
 //!   database infrastructure, backup tooling, etc.
+//! - **AWS Secrets Manager**: cloud-native storage that leverages AWS-managed
+//!   encryption, replication, IAM access control, and CloudTrail audit logging
+//!   alongside zerolease's own encryption layer (defense in depth).
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
 use crate::types::{SecretId, SecretName};
+
+#[cfg(feature = "aws-secretsmanager")]
+pub mod aws_secretsmanager;
 
 #[cfg(feature = "postgres")]
 pub mod postgres;
